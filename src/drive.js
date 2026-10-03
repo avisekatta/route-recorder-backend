@@ -166,25 +166,34 @@ async function downloadKmlFromDrive(tripId) {
 const BACKUP_NAME = 'route-recorder-backup.json';
 
 async function findBackupFile() {
+  const rootId = process.env.DRIVE_FOLDER_ID;
+  if (!rootId) throw new Error('DRIVE_FOLDER_ID is not configured');
+  const systemFolder = await ensureFolder(rootId, '_system');
   const list = await getDrive().files.list({
-    spaces: 'appDataFolder',
-    q: `name = '${BACKUP_NAME}' and trashed = false`,
+    q: `name = '${BACKUP_NAME}' and '${systemFolder}' in parents and trashed = false`,
     fields: 'files(id)',
   });
-  return (list.data.files && list.data.files[0] && list.data.files[0].id) || null;
+  return {
+    folderId: systemFolder,
+    fileId: (list.data.files && list.data.files[0] && list.data.files[0].id) || null,
+  };
 }
 
-/** Store users/trips/tokens as one file in the Drive app-data folder. */
+/**
+ * Store users/trips/tokens as one file in Route Collection/_system on Drive.
+ * (The app-data folder is not reachable with the current OAuth scope, so the
+ * backup lives in a clearly named subfolder of the central folder.)
+ */
 async function backupData(content) {
-  const existing = await findBackupFile();
-  if (existing) {
+  const { folderId, fileId } = await findBackupFile();
+  if (fileId) {
     await getDrive().files.update({
-      fileId: existing,
+      fileId,
       media: { mimeType: 'application/json', body: content },
     });
   } else {
     await getDrive().files.create({
-      requestBody: { name: BACKUP_NAME, parents: ['appDataFolder'], mimeType: 'application/json' },
+      requestBody: { name: BACKUP_NAME, parents: [folderId], mimeType: 'application/json' },
       media: { mimeType: 'application/json', body: content },
     });
   }
@@ -192,10 +201,10 @@ async function backupData(content) {
 
 /** Download the backup file, or null when none exists yet. */
 async function restoreData() {
-  const id = await findBackupFile();
-  if (!id) return null;
+  const { fileId } = await findBackupFile();
+  if (!fileId) return null;
   const res = await getDrive().files.get(
-    { fileId: id, alt: 'media' },
+    { fileId, alt: 'media' },
     { responseType: 'stream' }
   );
   return new Promise((resolve, reject) => {
