@@ -18,6 +18,24 @@ let trips = {};
 // tokens: token -> { userId, role, expiresAt }
 let tokens = {};
 
+// Optional handler that receives a full backup payload after each save
+// (debounced). Used to persist data to Google Drive across redeploys.
+let backupHandler = null;
+let backupTimer = null;
+
+function scheduleBackup() {
+  if (!backupHandler) return;
+  if (backupTimer) clearTimeout(backupTimer);
+  backupTimer = setTimeout(() => {
+    backupTimer = null;
+    try {
+      backupHandler(JSON.stringify({ users, trips, tokens, updatedAt: Date.now() }));
+    } catch (err) {
+      /* backup is best-effort */
+    }
+  }, 3000);
+}
+
 function readJson(file, fallback) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -36,6 +54,7 @@ function saveAll() {
   writeAtomic(USERS_FILE, users);
   writeAtomic(TRIPS_FILE, trips);
   writeAtomic(TOKENS_FILE, tokens);
+  scheduleBackup();
 }
 
 module.exports = {
@@ -95,6 +114,36 @@ module.exports = {
     users.push(user);
     saveAll();
     return { username };
+  },
+
+  // ---- backup hooks ----
+  setBackupHandler(fn) {
+    backupHandler = fn;
+  },
+  isEmpty() {
+    return users.length === 0 && Object.keys(trips).length === 0;
+  },
+  restoreFromBackup(json) {
+    const data = JSON.parse(json);
+    if (Array.isArray(data.users) && data.users.length) users = data.users;
+    if (data.trips && typeof data.trips === 'object') trips = { ...trips, ...data.trips };
+    if (data.tokens && typeof data.tokens === 'object') tokens = data.tokens;
+    saveAll();
+  },
+
+  // ---- backup hooks ----
+  setBackupHandler(fn) {
+    backupHandler = fn;
+  },
+  isEmpty() {
+    return users.length === 0 && Object.keys(trips).length === 0;
+  },
+  restoreFromBackup(json) {
+    const data = JSON.parse(json);
+    if (Array.isArray(data.users) && data.users.length) users = data.users;
+    if (data.trips && typeof data.trips === 'object') trips = { ...trips, ...data.trips };
+    if (data.tokens && typeof data.tokens === 'object') tokens = data.tokens;
+    saveAll();
   },
 
   // ---- tokens ----

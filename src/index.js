@@ -4,16 +4,36 @@ const fs = require('fs');
 const path = require('path');
 const store = require('./store');
 const auth = require('./auth');
+const drive = require('./drive');
 
 store.init();
 
-const adminCreated = store.ensureDefaultAdmin({
-  username: process.env.ADMIN_USERNAME || 'admin',
-  passwordHash: auth.hashPassword(process.env.ADMIN_PASSWORD || 'admin123'),
-});
-if (adminCreated) {
-  console.log(`Default administrator account created: "${adminCreated.username}". Change ADMIN_PASSWORD and restart, or add users and deactivate it.`);
-}
+(async () => {
+  try {
+    const backup = await drive.restoreData();
+    if (backup && store.isEmpty()) {
+      store.restoreFromBackup(backup);
+      console.log('Restored users and trips backup from Google Drive.');
+    }
+  } catch (err) {
+    console.log('Drive backup restore skipped:', (err && err.message) || err);
+  }
+  store.setBackupHandler((payload) => {
+    drive.backupData(payload).catch((err) =>
+      console.log('Drive backup failed:', (err && err.message) || err)
+    );
+  });
+
+  const adminCreated = store.ensureDefaultAdmin({
+    username: process.env.ADMIN_USERNAME || 'admin',
+    passwordHash: auth.hashPassword(process.env.ADMIN_PASSWORD || 'admin123'),
+  });
+  if (adminCreated) {
+    console.log(
+      `Default administrator account created: "${adminCreated.username}". Change ADMIN_PASSWORD and restart, or add users and deactivate it.`
+    );
+  }
+})();
 
 const app = express();
 app.disable('x-powered-by');

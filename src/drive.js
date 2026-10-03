@@ -163,4 +163,47 @@ async function downloadKmlFromDrive(tripId) {
   });
 }
 
-module.exports = { uploadWithRetry, downloadKmlFromDrive, downloadKmlFromDrive };
+const BACKUP_NAME = 'route-recorder-backup.json';
+
+async function findBackupFile() {
+  const list = await getDrive().files.list({
+    spaces: 'appDataFolder',
+    q: `name = '${BACKUP_NAME}' and trashed = false`,
+    fields: 'files(id)',
+  });
+  return (list.data.files && list.data.files[0] && list.data.files[0].id) || null;
+}
+
+/** Store users/trips/tokens as one file in the Drive app-data folder. */
+async function backupData(content) {
+  const existing = await findBackupFile();
+  if (existing) {
+    await getDrive().files.update({
+      fileId: existing,
+      media: { mimeType: 'application/json', body: content },
+    });
+  } else {
+    await getDrive().files.create({
+      requestBody: { name: BACKUP_NAME, parents: ['appDataFolder'], mimeType: 'application/json' },
+      media: { mimeType: 'application/json', body: content },
+    });
+  }
+}
+
+/** Download the backup file, or null when none exists yet. */
+async function restoreData() {
+  const id = await findBackupFile();
+  if (!id) return null;
+  const res = await getDrive().files.get(
+    { fileId: id, alt: 'media' },
+    { responseType: 'stream' }
+  );
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    res.data.on('data', (chunk) => chunks.push(chunk));
+    res.data.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    res.data.on('error', reject);
+  });
+}
+
+module.exports = { uploadWithRetry, downloadKmlFromDrive, backupData, restoreData };
