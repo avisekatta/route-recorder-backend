@@ -45,6 +45,18 @@ router.get('/trips', (req, res) => {
   res.json(store.listTrips());
 });
 
+// Download the KML stored on the server for one trip (diagnostics / recovery).
+router.get('/trips/:tripId/kml', (req, res) => {
+  const trip = store.getTrip(req.params.tripId);
+  if (!trip) return res.status(404).json({ error: 'Trip not found.' });
+  const file = path.join(KML_DIR, `${trip.tripId}.kml`);
+  if (!fs.existsSync(file)) {
+    return res.status(404).json({ error: 'No KML file stored for this trip on the server.' });
+  }
+  res.type('application/vnd.google-earth.kml+xml');
+  res.send(fs.readFileSync(file, 'utf8'));
+});
+
 // Retry a failed upload using the KML stored on the server.
 router.post('/trips/:tripId/retry', async (req, res) => {
   const trip = store.getTrip(req.params.tripId);
