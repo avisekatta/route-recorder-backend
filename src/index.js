@@ -32,7 +32,8 @@ const LATEST_FILE = path.join(__dirname, '..', 'public', 'apk', 'latest.json');
 app.use('/apk', express.static(path.join(__dirname, '..', 'public', 'apk')));
 app.get('/api/app/latest', (req, res) => {
   try {
-    res.json(JSON.parse(fs.readFileSync(LATEST_FILE, 'utf8')));
+    const raw = fs.readFileSync(LATEST_FILE, 'utf8').replace(/^\uFEFF/, '');
+    res.json(JSON.parse(raw));
   } catch {
     res.status(404).json({ error: 'No app update published.' });
   }
