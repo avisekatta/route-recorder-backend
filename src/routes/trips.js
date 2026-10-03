@@ -3,7 +3,7 @@ const path = require('path');
 const express = require('express');
 const { authRequired } = require('../auth');
 const store = require('../store');
-const { uploadWithRetry } = require('../drive');
+const { uploadWithRetry, downloadKmlFromDrive } = require('../drive');
 
 const KML_DIR = path.join(__dirname, '..', '..', 'data', 'kml');
 const router = express.Router();
@@ -56,6 +56,29 @@ router.post('/:tripId/kml', async (req, res) => {
 
 router.get('/', (req, res) => {
   res.json(store.listTrips(req.user.id));
+});
+
+// Download the KML for one of the user's own trips (local copy first, then
+// the Google Drive copy) — used by the app's "Restore from server" feature.
+router.get('/:tripId/kml', async (req, res) => {
+  const trip = store.getTrip(req.params.tripId);
+  if (trip && trip.userId === req.user.id) {
+    const file = path.join(KML_DIR, `${trip.tripId}.kml`);
+    if (fs.existsSync(file)) {
+      res.type('application/vnd.google-earth.kml+xml');
+      return res.send(fs.readFileSync(file, 'utf8'));
+    }
+  }
+  try {
+    const kml = await downloadKmlFromDrive(req.params.tripId);
+    if (kml) {
+      res.type('application/vnd.google-earth.kml+xml');
+      return res.send(kml);
+    }
+  } catch (err) {
+    return res.status(502).json({ error: 'Could not read the KML from Google Drive: ' + String((err && err.message) || err) });
+  }
+  res.status(404).json({ error: 'No KML found for this trip.' });
 });
 
 module.exports = router;
