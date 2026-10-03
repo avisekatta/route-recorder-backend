@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Route Recorder — Administration</title>
+<style>
+  :root { --green: #1b5e20; --line: #dde3dd; --bg: #f5f7f5; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; margin: 0; background: var(--bg); color: #1c2421; }
+  header { background: var(--green); color: #fff; padding: 14px 24px; display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 18px; margin: 0; flex: 1; }
+  header button { background: #ffffff22; border: 1px solid #ffffff66; color: #fff; padding: 6px 14px; border-radius: 6px; cursor: pointer; }
+  main { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+  section.card { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+  h2 { margin-top: 0; font-size: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: #46504c; font-weight: 600; }
+  tr:hover td { background: #fafcfa; }
+  input { padding: 8px 10px; border: 1px solid #b9c4bd; border-radius: 6px; font-size: 14px; margin-right: 8px; }
+  button { padding: 8px 14px; border: 1px solid var(--green); background: #fff; color: var(--green); border-radius: 6px; cursor: pointer; font-size: 14px; }
+  button.primary { background: var(--green); color: #fff; }
+  button.small { padding: 4px 10px; font-size: 13px; }
+  .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; }
+  .pill.synced { background: #e3f2e6; color: #14521b; }
+  .pill.failed { background: #fde8e8; color: #9d2020; }
+  .pill.awaiting_kml, .pill.syncing { background: #fff4d6; color: #7a5a00; }
+  .msg { margin: 8px 0; font-size: 14px; }
+  .msg.err { color: #9d2020; }
+  .msg.ok { color: #14521b; }
+  nav { margin-bottom: 16px; }
+  nav button { margin-right: 8px; }
+  nav button.active { background: var(--green); color: #fff; }
+  .muted { color: #68736e; }
+  .error-cell { max-width: 320px; overflow-wrap: anywhere; color: #9d2020; }
+  #loginBox { max-width: 420px; margin: 60px auto; }
+  #loginBox label { display: block; font-size: 14px; margin: 10px 0 4px; }
+  #loginBox input { width: 100%; margin: 0; }
+  #loginBox button { width: 100%; margin-top: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Route Recorder — Administration</h1>
+  <span id="who" class="muted" style="color:#cfe3d2"></span>
+  <button id="logoutBtn" hidden>Sign out</button>
+</header>
+
+<section id="loginBox" class="card">
+  <h2>Administrator sign in</h2>
+  <label>Username <input id="username" autocomplete="username" /></label>
+  <label>Password <input id="password" type="password" autocomplete="current-password" /></label>
+  <button class="primary" id="loginBtn">Sign in</button>
+  <p class="msg" id="loginMsg"></p>
+</section>
+
+<main id="mainBox" hidden>
+  <nav>
+    <button id="navUsers" class="active">Users</button>
+    <button id="navTrips">Trips</button>
+  </nav>
+
+  <section id="viewUsers" class="card">
+    <h2>Approved users</h2>
+    <form id="addUserForm">
+      <input id="newUsername" placeholder="Username" />
+      <input id="newPassword" type="password" placeholder="Password (min 8 characters)" />
+      <input id="newDisplay" placeholder="Display name" />
+      <button class="primary" type="submit">Create user</button>
+    </form>
+    <p class="msg" id="userMsg"></p>
+    <table>
+      <thead><tr><th>Username</th><th>Display name</th><th>Role</th><th>Active</th><th>Created</th><th>Action</th></tr></thead>
+      <tbody id="userRows"></tbody>
+    </table>
+  </section>
+
+  <section id="viewTrips" class="card" hidden>
+    <h2>Trip and synchronisation status</h2>
+    <p style="margin-top:0"><button id="refreshTrips">Refresh</button></p>
+    <table>
+      <thead><tr><th>Trip ID</th><th>User</th><th>Route name</th><th>Started</th><th>Status</th><th>Drive file</th><th>Last error</th><th>Action</th></tr></thead>
+      <tbody id="tripRows"></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+function getToken() {
+  return localStorage.getItem('adminToken') || '';
+}
+let usersById = {};
+
+async function api(path, options = {}) {
+  const opts = { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } };
+  const currentToken = getToken();
+  if (currentToken) opts.headers['Authorization'] = 'Bearer ' + currentToken;
+  const res = await fetch(path, opts);
+  let data = {};
+  try { data = await res.json(); } catch (e) { /* empty body */ }
+  if (!res.ok) throw new Error(data.error || ('Server error ' + res.status));
+  return data;
+}
+
+function esc(text) {
+  return String(text == null ? '' : text)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function showMain() {
+  document.getElementById('loginBox').hidden = true;
+  document.getElementById('mainBox').hidden = false;
+  document.getElementById('logoutBtn').hidden = false;
+  loadUsers();
+  loadTrips();
+}
+
+async function signIn() {
+  const msg = document.getElementById('loginMsg');
+  msg.className = 'msg';
+  msg.textContent = '';
+  try {
+    const data = await api('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value,
+      }),
+    });
+    if (data.role !== 'admin') throw new Error('This account is not an administrator.');
+    localStorage.setItem('adminToken', data.token);
+    document.getElementById('who').textContent = 'Signed in as ' + data.displayName;
+    showMain();
+  } catch (err) {
+    msg.className = 'msg err';
+    msg.textContent = err.message;
+  }
+}
+
+function signOut() {
+  localStorage.removeItem('adminToken');
+  location.reload();
+}
+
+async function loadUsers() {
+  try {
+    const users = await api('/api/admin/users');
+    usersById = {};
+    const rows = document.getElementById('userRows');
+    rows.innerHTML = '';
+    for (const u of users) {
+      usersById[u.id] = u;
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + esc(u.username) + '</td>' +
+        '<td>' + esc(u.displayName) + '</td>' +
+        '<td>' + esc(u.role) + '</td>' +
+        '<td>' + (u.active ? 'Yes' : 'No') + '</td>' +
+        '<td class="muted">' + esc(String(u.createdAt || '').slice(0, 10)) + '</td>' +
+        '<td><button class="small" data-action="toggle" data-id="' + esc(u.id) + '">' +
+        (u.active ? 'Deactivate' : 'Activate') + '</button></td>';
+      rows.appendChild(tr);
+    }
+  } catch (err) {
+    document.getElementById('userMsg').className = 'msg err';
+    document.getElementById('userMsg').textContent = err.message;
+  }
+}
+
+async function loadTrips() {
+  try {
+    const trips = await api('/api/admin/trips');
+    const rows = document.getElementById('tripRows');
+    rows.innerHTML = '';
+    if (!trips.length) {
+      rows.innerHTML = '<tr><td colspan="8" class="muted">No trips yet.</td></tr>';
+    }
+    for (const t of trips) {
+      const user = usersById[t.userId] ? usersById[t.userId].username : t.userId;
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + esc(t.tripId) + '</td>' +
+        '<td>' + esc(user) + '</td>' +
+        '<td>' + esc(t.routeName || '(awaiting name)') + '</td>' +
+        '<td class="muted">' + esc(String(t.startedLocal || '') + ' ' + String(t.startedTime || '')) + '</td>' +
+        '<td><span class="pill ' + esc(t.status) + '">' + esc(t.status) + '</span></td>' +
+        '<td>' + (t.driveFileId ? '<span class="muted" title="' + esc(t.driveFileId) + '">uploaded</span>' : '—') + '</td>' +
+        '<td class="error-cell">' + esc(t.lastError || '') + '</td>' +
+        '<td>' + (t.status === 'failed' ? '<button class="small" data-action="retry" data-id="' + esc(t.tripId) + '">Retry upload</button>' : '—') + '</td>';
+      rows.appendChild(tr);
+    }
+  } catch (err) {
+    document.getElementById('tripRows').innerHTML =
+      '<tr><td colspan="8" class="error-cell">' + esc(err.message) + '</td></tr>';
+  }
+}
+
+document.getElementById('loginBtn').addEventListener('click', signIn);
+document.getElementById('password').addEventListener('keydown', (e) => { if (e.key === 'Enter') signIn(); });
+document.getElementById('logoutBtn').addEventListener('click', signOut);
+document.getElementById('navUsers').addEventListener('click', () => {
+  document.getElementById('viewUsers').hidden = false;
+  document.getElementById('viewTrips').hidden = true;
+  document.getElementById('navUsers').classList.add('active');
+  document.getElementById('navTrips').classList.remove('active');
+});
+document.getElementById('navTrips').addEventListener('click', () => {
+  document.getElementById('viewUsers').hidden = true;
+  document.getElementById('viewTrips').hidden = false;
+  document.getElementById('navUsers').classList.remove('active');
+  document.getElementById('navTrips').classList.add('active');
+  loadTrips();
+});
+document.getElementById('refreshTrips').addEventListener('click', loadTrips);
+
+document.getElementById('addUserForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const msg = document.getElementById('userMsg');
+  msg.className = 'msg';
+  msg.textContent = '';
+  try {
+    await api('/api/admin/users', {
+      method: 'POST',
+      body: JSON.stringify({
+        username: document.getElementById('newUsername').value,
+        password: document.getElementById('newPassword').value,
+        displayName: document.getElementById('newDisplay').value,
+      }),
+    });
+    msg.className = 'msg ok';
+    msg.textContent = 'User created.';
+    document.getElementById('newUsername').value = '';
+    document.getElementById('newPassword').value = '';
+    document.getElementById('newDisplay').value = '';
+    loadUsers();
+  } catch (err) {
+    msg.className = 'msg err';
+    msg.textContent = err.message;
+  }
+});
+
+document.addEventListener('click', async (e) => {
+  const button = e.target.closest('button[data-action]');
+  if (!button) return;
+  const action = button.dataset.action;
+  const id = button.dataset.id;
+  const msg = document.getElementById('userMsg');
+  try {
+    if (action === 'toggle') {
+      await api('/api/admin/users/' + encodeURIComponent(id) + '/toggle', { method: 'POST' });
+      loadUsers();
+    } else if (action === 'retry') {
+      button.textContent = 'Uploading…';
+      button.disabled = true;
+      await api('/api/admin/trips/' + encodeURIComponent(id) + '/retry', { method: 'POST' });
+      loadTrips();
+    }
+  } catch (err) {
+    msg.className = 'msg err';
+    msg.textContent = err.message;
+    button.textContent = action === 'retry' ? 'Retry upload' : button.textContent;
+    button.disabled = false;
+  }
+});
+
+if (getToken()) {
+  api('/api/auth/me')
+    .then((data) => {
+      if (data.role !== 'admin') throw new Error('not admin');
+      document.getElementById('who').textContent = 'Signed in as ' + data.displayName;
+      showMain();
+    })
+    .catch(() => { localStorage.removeItem('adminToken'); });
+}
+</script>
+</body>
+</html>
