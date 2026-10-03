@@ -3,7 +3,7 @@ const path = require('path');
 const express = require('express');
 const { adminRequired, hashPassword } = require('../auth');
 const store = require('../store');
-const { uploadWithRetry } = require('../drive');
+const { uploadWithRetry, downloadKmlFromDrive } = require('../drive');
 
 const KML_DIR = path.join(__dirname, '..', '..', 'data', 'kml');
 const router = express.Router();
@@ -45,16 +45,27 @@ router.get('/trips', (req, res) => {
   res.json(store.listTrips());
 });
 
-// Download the KML stored on the server for one trip (diagnostics / recovery).
-router.get('/trips/:tripId/kml', (req, res) => {
+// Download the KML for one trip: local copy first, then Google Drive fallback
+// (the local disk is reset on redeploys; Drive keeps the files).
+router.get('/trips/:tripId/kml', async (req, res) => {
   const trip = store.getTrip(req.params.tripId);
-  if (!trip) return res.status(404).json({ error: 'Trip not found.' });
-  const file = path.join(KML_DIR, `${trip.tripId}.kml`);
-  if (!fs.existsSync(file)) {
-    return res.status(404).json({ error: 'No KML file stored for this trip on the server.' });
+  if (trip) {
+    const file = path.join(KML_DIR, `${trip.tripId}.kml`);
+    if (fs.existsSync(file)) {
+      res.type('application/vnd.google-earth.kml+xml');
+      return res.send(fs.readFileSync(file, 'utf8'));
+    }
   }
-  res.type('application/vnd.google-earth.kml+xml');
-  res.send(fs.readFileSync(file, 'utf8'));
+  try {
+    const kml = await downloadKmlFromDrive(req.params.tripId);
+    if (kml) {
+      res.type('application/vnd.google-earth.kml+xml');
+      return res.send(kml);
+    }
+  } catch (err) {
+    return res.status(502).json({ error: 'Could not read the KML from Google Drive: ' + String((err && err.message) || err) });
+  }
+  res.status(404).json({ error: 'No KML found for this trip.' });
 });
 
 // Retry a failed upload using the KML stored on the server.

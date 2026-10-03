@@ -140,4 +140,27 @@ async function uploadWithRetry(trip, kml, attempts = 3) {
   throw lastError;
 }
 
-module.exports = { uploadWithRetry };
+/**
+ * Find a KML file anywhere in the authenticated account's Drive by trip ID and
+ * return its contents. Used for diagnostics and recovery, and it works even
+ * when the server's local disk was reset.
+ */
+async function downloadKmlFromDrive(tripId) {
+  if (!/^[A-Za-z0-9_-]+$/.test(tripId)) return null;
+  const q = `name contains '${tripId}' and mimeType = '${KML_MIME}' and trashed = false`;
+  const list = await getDrive().files.list({ q, fields: 'files(id, name)', pageSize: 5 });
+  const file = (list.data.files || [])[0];
+  if (!file) return null;
+  const res = await getDrive().files.get(
+    { fileId: file.id, alt: 'media' },
+    { responseType: 'stream' }
+  );
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    res.data.on('data', (chunk) => chunks.push(chunk));
+    res.data.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    res.data.on('error', reject);
+  });
+}
+
+module.exports = { uploadWithRetry, downloadKmlFromDrive, downloadKmlFromDrive };
