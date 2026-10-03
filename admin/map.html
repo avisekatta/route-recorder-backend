@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Route map — Route Recorder</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  html, body, #map { height: 100%; margin: 0; }
+  #banner {
+    position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1000;
+    background: #ffffff; padding: 8px 18px; border-radius: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.25); font-family: system-ui, sans-serif; font-size: 14px;
+  }
+</style>
+</head>
+<body>
+<div id="banner">Loading route…</div>
+<div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const tripId = new URLSearchParams(location.search).get('tripId') || '';
+const token = localStorage.getItem('adminToken') || '';
+const map = L.map('map');
+const standard = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap contributors', maxZoom: 19
+});
+const satellite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  attribution: 'Esri World Imagery', maxZoom: 19
+});
+satellite.addTo(map);
+L.control.layers({ 'Street map': standard, 'Satellite': satellite }, {}, { position: 'topright' }).addTo(map);
+
+async function load() {
+  const banner = document.getElementById('banner');
+  if (!tripId || !token) {
+    banner.textContent = 'Sign in on the admin page first, then open the route again.';
+    return;
+  }
+  const res = await fetch('/api/admin/trips/' + encodeURIComponent(tripId) + '/kml', {
+    headers: { Authorization: 'Bearer ' + token }
+  });
+  if (!res.ok) {
+    banner.textContent = 'Could not load route: ' + res.status;
+    return;
+  }
+  const kml = await res.text();
+  const points = [];
+  const re = /<LineString>.*?<coordinates>(.*?)<\/coordinates>/gs;
+  let match;
+  while ((match = re.exec(kml)) !== null) {
+    match[1].trim().split(/\s+/).forEach(function (token) {
+      const parts = token.split(',');
+      if (parts.length >= 2) {
+        const lon = parseFloat(parts[0]);
+        const lat = parseFloat(parts[1]);
+        if (isFinite(lat) && isFinite(lon)) points.push([lat, lon]);
+      }
+    });
+  }
+  if (!points.length) {
+    banner.textContent = 'No line coordinates found in this route.';
+    return;
+  }
+  L.polyline(points, { color: '#1a73e8', weight: 4 }).addTo(map);
+  L.circleMarker(points[0], { radius: 8, color: '#1e8e3e', fillColor: '#1e8e3e', fillOpacity: 1 })
+    .addTo(map).bindPopup('Start');
+  L.circleMarker(points[points.length - 1], { radius: 8, color: '#e53935', fillColor: '#e53935', fillOpacity: 1 })
+    .addTo(map).bindPopup('End');
+  map.fitBounds(L.latLngBounds(points), { padding: [30, 30] });
+  banner.textContent = tripId + ' · ' + points.length + ' points';
+}
+load();
+</script>
+</body>
+</html>

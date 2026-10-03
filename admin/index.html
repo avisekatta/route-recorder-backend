@@ -187,7 +187,10 @@ async function loadTrips() {
         '<td><span class="pill ' + esc(t.status) + '">' + esc(t.status) + '</span></td>' +
         '<td>' + (t.driveFileId ? '<span class="muted" title="' + esc(t.driveFileId) + '">uploaded</span>' : '—') + '</td>' +
         '<td class="error-cell">' + esc(t.lastError || '') + '</td>' +
-        '<td>' + (t.status === 'failed' ? '<button class="small" data-action="retry" data-id="' + esc(t.tripId) + '">Retry upload</button>' : '—') + '</td>';
+        '<td>' +
+        (t.status === 'failed' ? '<button class="small" data-action="retry" data-id="' + esc(t.tripId) + '">Retry upload</button> ' : '') +
+        '<button class="small" data-action="map" data-id="' + esc(t.tripId) + '">Map</button>' +
+        '</td>';
       rows.appendChild(tr);
     }
   } catch (err) {
@@ -255,6 +258,8 @@ document.addEventListener('click', async (e) => {
       button.disabled = true;
       await api('/api/admin/trips/' + encodeURIComponent(id) + '/retry', { method: 'POST' });
       loadTrips();
+    } else if (action === 'map') {
+      window.open('map.html?tripId=' + encodeURIComponent(id), '_blank');
     }
   } catch (err) {
     msg.className = 'msg err';
