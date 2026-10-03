@@ -1,5 +1,6 @@
 require('dotenv').config();
 const express = require('express');
+const fs = require('fs');
 const path = require('path');
 const store = require('./store');
 const auth = require('./auth');
@@ -25,6 +26,18 @@ app.use(
 );
 
 app.get('/api/health', (req, res) => res.json({ ok: true, time: new Date().toISOString() }));
+
+// App update feed: latest.json + the APK file under /apk.
+const LATEST_FILE = path.join(__dirname, '..', 'public', 'apk', 'latest.json');
+app.use('/apk', express.static(path.join(__dirname, '..', 'public', 'apk')));
+app.get('/api/app/latest', (req, res) => {
+  try {
+    res.json(JSON.parse(fs.readFileSync(LATEST_FILE, 'utf8')));
+  } catch {
+    res.status(404).json({ error: 'No app update published.' });
+  }
+});
+
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/trips', require('./routes/trips'));
 app.use('/api/admin', require('./routes/admin'));
