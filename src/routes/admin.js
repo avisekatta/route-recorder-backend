@@ -6,6 +6,7 @@ const store = require('../store');
 const { uploadWithRetry, downloadKmlFromDrive } = require('../drive');
 
 const KML_DIR = path.join(__dirname, '..', '..', 'data', 'kml');
+const CRASH_DIR = path.join(__dirname, '..', '..', 'data', 'crash-reports');
 const router = express.Router();
 
 router.use(adminRequired);
@@ -93,6 +94,39 @@ router.post('/trips/:tripId/retry', async (req, res) => {
     store.setTripStatus(trip.tripId, 'failed', message);
     res.status(502).json({ status: 'failed', error: message });
   }
+});
+
+// Crash reports uploaded by the app (administrator only).
+router.get('/crashes', (req, res) => {
+  try {
+    if (!fs.existsSync(CRASH_DIR)) return res.json([]);
+    const files = fs
+      .readdirSync(CRASH_DIR)
+      .filter((f) => f.endsWith('.txt'))
+      .sort()
+      .reverse();
+    res.json(
+      files.map((f) => {
+        const file = path.join(CRASH_DIR, f);
+        const stat = fs.statSync(file);
+        return {
+          id: f,
+          time: stat.mtime.toISOString(),
+          head: fs.readFileSync(file, 'utf8').slice(0, 800),
+        };
+      })
+    );
+  } catch {
+    res.json([]);
+  }
+});
+
+router.get('/crashes/:id', (req, res) => {
+  const id = path.basename(String(req.params.id));
+  if (!id.endsWith('.txt')) return res.status(400).json({ error: 'Invalid report id.' });
+  const file = path.join(CRASH_DIR, id);
+  if (!fs.existsSync(file)) return res.status(404).json({ error: 'Report not found.' });
+  res.type('text/plain').send(fs.readFileSync(file, 'utf8'));
 });
 
 module.exports = router;

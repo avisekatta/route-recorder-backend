@@ -59,6 +59,7 @@
   <nav>
     <button id="navUsers" class="active">Users</button>
     <button id="navTrips">Trips</button>
+    <button id="navCrashes">Crash reports</button>
   </nav>
 
   <section id="viewUsers" class="card">
@@ -83,6 +84,13 @@
       <thead><tr><th>Trip ID</th><th>User</th><th>Route name</th><th>Started</th><th>Status</th><th>Drive file</th><th>Last error</th><th>Action</th></tr></thead>
       <tbody id="tripRows"></tbody>
     </table>
+  </section>
+
+  <section id="viewCrashes" class="card" hidden>
+    <h2>Phone crash reports</h2>
+    <p style="margin-top:0">The app uploads its crash log automatically. A report appears here the next time the app starts after a crash.</p>
+    <p><button id="refreshCrashes">Refresh</button></p>
+    <div id="crashList" style="font-size:13px"></div>
   </section>
 </main>
 
@@ -209,17 +217,62 @@ document.getElementById('logoutBtn').addEventListener('click', signOut);
 document.getElementById('navUsers').addEventListener('click', () => {
   document.getElementById('viewUsers').hidden = false;
   document.getElementById('viewTrips').hidden = true;
+  document.getElementById('viewCrashes').hidden = true;
   document.getElementById('navUsers').classList.add('active');
   document.getElementById('navTrips').classList.remove('active');
+  document.getElementById('navCrashes').classList.remove('active');
 });
 document.getElementById('navTrips').addEventListener('click', () => {
   document.getElementById('viewUsers').hidden = true;
   document.getElementById('viewTrips').hidden = false;
+  document.getElementById('viewCrashes').hidden = true;
   document.getElementById('navUsers').classList.remove('active');
   document.getElementById('navTrips').classList.add('active');
+  document.getElementById('navCrashes').classList.remove('active');
   loadTrips();
 });
+document.getElementById('navCrashes').addEventListener('click', () => {
+  document.getElementById('viewUsers').hidden = true;
+  document.getElementById('viewTrips').hidden = true;
+  document.getElementById('viewCrashes').hidden = false;
+  document.getElementById('navUsers').classList.remove('active');
+  document.getElementById('navTrips').classList.remove('active');
+  document.getElementById('navCrashes').classList.add('active');
+  loadCrashes();
+});
 document.getElementById('refreshTrips').addEventListener('click', loadTrips);
+document.getElementById('refreshCrashes').addEventListener('click', loadCrashes);
+
+async function loadCrashes() {
+  const box = document.getElementById('crashList');
+  try {
+    const list = await api('/api/admin/crashes');
+    if (!list.length) {
+      box.textContent = 'No crash reports have been uploaded yet.';
+      return;
+    }
+    box.innerHTML = list
+      .map(
+        (c) =>
+          '<div style="margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--line)">' +
+          '<strong>' +
+          esc(c.time) +
+          '</strong> ' +
+          '<a href="/api/admin/crashes/' +
+          encodeURIComponent(c.id) +
+          '?token=' +
+          encodeURIComponent(getToken()) +
+          '" target="_blank">full log</a>' +
+          '<pre style="white-space:pre-wrap;font-family:ui-monospace,monospace;font-size:11px;margin:6px 0 0">' +
+          esc(c.head) +
+          '</pre>' +
+          '</div>'
+      )
+      .join('');
+  } catch (err) {
+    box.textContent = 'Could not load crash reports: ' + err.message;
+  }
+}
 
 document.getElementById('addUserForm').addEventListener('submit', async (e) => {
   e.preventDefault();

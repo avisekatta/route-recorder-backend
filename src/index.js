@@ -61,6 +61,7 @@ app.get('/api/app/latest', (req, res) => {
 
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/trips', require('./routes/trips'));
+app.use('/api/crash', require('./routes/crash'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/admin', express.static(path.join(__dirname, '..', 'admin')));
 
