@@ -55,14 +55,25 @@ router.post('/:tripId/kml', async (req, res) => {
 });
 
 router.get('/', (req, res) => {
+  if (req.user.role === 'admin') {
+    // Administrators see every account's routes; each entry carries the
+    // owner's username so the app can label foreign routes on the phone.
+    const usernames = {};
+    for (const u of store.listUsers()) usernames[u.id] = u.username;
+    return res.json(
+      store.listTrips().map((t) => ({ ...t, ownerUsername: usernames[t.userId] || t.userId }))
+    );
+  }
   res.json(store.listTrips(req.user.id));
 });
 
 // Download the KML for one of the user's own trips (local copy first, then
 // the Google Drive copy) — used by the app's "Restore from server" feature.
+// Administrators may read any account's KML.
 router.get('/:tripId/kml', async (req, res) => {
   const trip = store.getTrip(req.params.tripId);
-  if (trip && trip.userId === req.user.id) {
+  const canRead = trip && (trip.userId === req.user.id || req.user.role === 'admin');
+  if (canRead) {
     const file = path.join(KML_DIR, `${trip.tripId}.kml`);
     if (fs.existsSync(file)) {
       res.type('application/vnd.google-earth.kml+xml');
