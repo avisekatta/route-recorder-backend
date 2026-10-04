@@ -16,18 +16,21 @@ router.get('/users', (req, res) => {
 });
 
 router.post('/users', (req, res) => {
-  const { username, displayName } = req.body || {};
+  const { username, displayName, role } = req.body || {};
   if (!username) {
     return res.status(400).json({ error: 'Username is required.' });
   }
   if (!/^[A-Za-z0-9._-]{3,40}$/.test(String(username))) {
     return res.status(400).json({ error: 'Username may contain only letters, numbers, dot, dash or underscore (3–40 characters).' });
   }
+  // role is optional and only an administrator may grant the admin role.
+  const safeRole = String(role || '').toLowerCase() === 'admin' ? 'admin' : 'user';
   const user = store.createUser({
     username: String(username),
     // Every account starts with the default PIN 1234; users change it in the app.
     passwordHash: hashPassword('1234'),
     displayName: String(displayName || username),
+    role: safeRole,
   });
   if (!user) return res.status(409).json({ error: 'That username is already in use.' });
   res.status(201).json({ ...user, defaultPin: '1234' });
