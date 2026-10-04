@@ -132,4 +132,59 @@ router.get('/crashes/:id', (req, res) => {
   res.type('text/plain').send(fs.readFileSync(file, 'utf8'));
 });
 
+// All routes on one map (for overlap checking). Returns one lightweight
+// entry per trip: metadata plus [lat, lon] points parsed from its KML.
+router.get('/map', async (req, res) => {
+  const days = Number(req.query.days);
+  const sinceMs = Number.isFinite(days) && days > 0 ? Date.now() - days * 86400000 : 0;
+  const results = [];
+  for (const trip of store.listTrips()) {
+    if (!trip.startedAtMs || trip.startedAtMs < sinceMs) continue;
+    let kml = null;
+    const file = path.join(KML_DIR, `${trip.tripId}.kml`);
+    if (fs.existsSync(file)) {
+      kml = fs.readFileSync(file, 'utf8');
+    } else {
+      try {
+        kml = await downloadKmlFromDrive(trip.tripId);
+      } catch (err) {
+        kml = null;
+      }
+    }
+    if (!kml) continue;
+    const points = parseKmlCoordinates(kml);
+    if (!points.length) continue;
+    results.push({
+      tripId: trip.tripId,
+      userId: trip.userId,
+      routeName: trip.routeName || '(awaiting name)',
+      startedLocal: trip.startedLocal || '',
+      startedTime: trip.startedTime || '',
+      distanceM: trip.distanceM || 0,
+      status: trip.status || '',
+      points,
+    });
+  }
+  res.json(results);
+});
+
+// Pull every LineString <coordinates> block out of a KML produced by the app.
+function parseKmlCoordinates(kml) {
+  const points = [];
+  const coordRegex = /<coordinates>([\s\S]*?)<\/coordinates>/g;
+  let match;
+  while ((match = coordRegex.exec(kml)) !== null) {
+    const tokens = match[1].trim().split(/\s+/);
+    for (const token of tokens) {
+      const parts = token.split(',');
+      const lon = parseFloat(parts[0]);
+      const lat = parseFloat(parts[1]);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        points.push([lat, lon]);
+      }
+    }
+  }
+  return points;
+}
+
 module.exports = router;

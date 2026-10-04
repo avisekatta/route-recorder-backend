@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Route Recorder — Administration</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   :root { --green: #e65100; --line: #dde3dd; --bg: #f5f7f5; }
   * { box-sizing: border-box; }
@@ -59,6 +60,7 @@
   <nav>
     <button id="navUsers" class="active">Users</button>
     <button id="navTrips">Trips</button>
+    <button id="navMap">All routes map</button>
     <button id="navCrashes">Crash reports</button>
   </nav>
 
@@ -92,8 +94,25 @@
     <p><button id="refreshCrashes">Refresh</button></p>
     <div id="crashList" style="font-size:13px"></div>
   </section>
+
+  <section id="viewMap" class="card" hidden>
+    <h2>All routes on one map</h2>
+    <p style="margin-top:0">Every uploaded route drawn together so overlapping or repeated routes can be spotted at a glance.</p>
+    <p>
+      <select id="mapDays">
+        <option value="7">Last 7 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="90">Last 90 days</option>
+        <option value="0">All time</option>
+      </select>
+      <button class="primary" id="refreshMap">Show routes</button>
+    </p>
+    <div id="routesMap" style="height:520px;border:1px solid var(--line);border-radius:8px"></div>
+    <div id="mapLegend" style="margin-top:12px;font-size:13px"></div>
+  </section>
 </main>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 function getToken() {
   return localStorage.getItem('adminToken') || '';
@@ -218,30 +237,110 @@ document.getElementById('navUsers').addEventListener('click', () => {
   document.getElementById('viewUsers').hidden = false;
   document.getElementById('viewTrips').hidden = true;
   document.getElementById('viewCrashes').hidden = true;
+  document.getElementById('viewMap').hidden = true;
   document.getElementById('navUsers').classList.add('active');
   document.getElementById('navTrips').classList.remove('active');
   document.getElementById('navCrashes').classList.remove('active');
+  document.getElementById('navMap').classList.remove('active');
 });
 document.getElementById('navTrips').addEventListener('click', () => {
   document.getElementById('viewUsers').hidden = true;
   document.getElementById('viewTrips').hidden = false;
   document.getElementById('viewCrashes').hidden = true;
+  document.getElementById('viewMap').hidden = true;
   document.getElementById('navUsers').classList.remove('active');
   document.getElementById('navTrips').classList.add('active');
   document.getElementById('navCrashes').classList.remove('active');
+  document.getElementById('navMap').classList.remove('active');
   loadTrips();
 });
 document.getElementById('navCrashes').addEventListener('click', () => {
   document.getElementById('viewUsers').hidden = true;
   document.getElementById('viewTrips').hidden = true;
   document.getElementById('viewCrashes').hidden = false;
+  document.getElementById('viewMap').hidden = true;
   document.getElementById('navUsers').classList.remove('active');
   document.getElementById('navTrips').classList.remove('active');
   document.getElementById('navCrashes').classList.add('active');
+  document.getElementById('navMap').classList.remove('active');
   loadCrashes();
+});
+document.getElementById('navMap').addEventListener('click', () => {
+  document.getElementById('viewUsers').hidden = true;
+  document.getElementById('viewTrips').hidden = true;
+  document.getElementById('viewCrashes').hidden = true;
+  document.getElementById('viewMap').hidden = false;
+  document.getElementById('navUsers').classList.remove('active');
+  document.getElementById('navTrips').classList.remove('active');
+  document.getElementById('navCrashes').classList.remove('active');
+  document.getElementById('navMap').classList.add('active');
+  loadRoutesMap();
 });
 document.getElementById('refreshTrips').addEventListener('click', loadTrips);
 document.getElementById('refreshCrashes').addEventListener('click', loadCrashes);
+document.getElementById('refreshMap').addEventListener('click', loadRoutesMap);
+
+// ---- All routes map (Leaflet) ----
+const ROUTE_COLORS = [
+  '#1a73e8', '#e53935', '#43a047', '#fb8c00', '#8e24aa', '#00acc1',
+  '#d81b60', '#5e35b1', '#00897b', '#f4511e', '#3949ab', '#c0ca33',
+];
+let routesMap = null;
+let routesTileLayer = null;
+
+function initRoutesMap() {
+  if (routesMap || typeof L === 'undefined') return;
+  routesMap = L.map('routesMap', { zoomControl: true }).setView([23.23, 87.07], 11);
+  routesTileLayer = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    { attribution: 'Imagery: Esri World Imagery', maxZoom: 19 }
+  ).addTo(routesMap);
+}
+
+async function loadRoutesMap() {
+  initRoutesMap();
+  if (!routesMap) return;
+  const legend = document.getElementById('mapLegend');
+  try {
+    const days = document.getElementById('mapDays').value;
+    const list = await api('/api/admin/map?days=' + encodeURIComponent(days));
+    routesMap.eachLayer((layer) => {
+      if (layer !== routesTileLayer) routesMap.removeLayer(layer);
+    });
+    const bounds = [];
+    let html = '';
+    list.forEach((trip, i) => {
+      const latlngs = trip.points.map((p) => [p[0], p[1]]);
+      if (!latlngs.length) return;
+      const color = ROUTE_COLORS[i % ROUTE_COLORS.length];
+      const user = usersById[trip.userId] ? usersById[trip.userId].username : trip.userId;
+      const line = L.polyline(latlngs, { color, weight: 3, opacity: 0.85 });
+      line.bindPopup(
+        '<b>' + esc(trip.routeName) + '</b><br>' +
+        esc(user) + '<br>' +
+        esc(String(trip.startedLocal || '') + ' ' + String(trip.startedTime || '')) + '<br>' +
+        Math.round(trip.distanceM || 0) + ' m'
+      );
+      line.addTo(routesMap);
+      latlngs.forEach((ll) => bounds.push(ll));
+      html +=
+        '<div style="display:flex;align-items:center;gap:8px;margin:4px 0">' +
+        '<span style="width:14px;height:14px;border-radius:3px;background:' + color + ';flex:none"></span>' +
+        '<span>' + esc(trip.routeName) + ' — ' + esc(user) + '</span>' +
+        '<span class="muted">' + esc(String(trip.startedLocal || '')) + '</span>' +
+        '</div>';
+    });
+    legend.innerHTML = html || '<span class="muted">No routes found in this period.</span>';
+    if (bounds.length) {
+      routesMap.fitBounds(L.latLngBounds(bounds), { padding: [30, 30] });
+      if (routesMap.getZoom() > 18) routesMap.setZoom(18);
+    } else {
+      routesMap.setView([23.23, 87.07], 11);
+    }
+  } catch (err) {
+    legend.innerHTML = '<span style="color:#9d2020">' + esc(err.message) + '</span>';
+  }
+}
 
 async function loadCrashes() {
   const box = document.getElementById('crashList');
