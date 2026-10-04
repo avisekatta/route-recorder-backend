@@ -15,23 +15,21 @@ router.get('/users', (req, res) => {
 });
 
 router.post('/users', (req, res) => {
-  const { username, password, displayName } = req.body || {};
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required.' });
+  const { username, displayName } = req.body || {};
+  if (!username) {
+    return res.status(400).json({ error: 'Username is required.' });
   }
   if (!/^[A-Za-z0-9._-]{3,40}$/.test(String(username))) {
     return res.status(400).json({ error: 'Username may contain only letters, numbers, dot, dash or underscore (3–40 characters).' });
   }
-  if (String(password).length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters.' });
-  }
   const user = store.createUser({
     username: String(username),
-    passwordHash: hashPassword(String(password)),
+    // Every account starts with the default PIN 1234; users change it in the app.
+    passwordHash: hashPassword('1234'),
     displayName: String(displayName || username),
   });
   if (!user) return res.status(409).json({ error: 'That username is already in use.' });
-  res.status(201).json(user);
+  res.status(201).json({ ...user, defaultPin: '1234' });
 });
 
 router.post('/users/:id/toggle', (req, res) => {
@@ -39,6 +37,14 @@ router.post('/users/:id/toggle', (req, res) => {
   if (!user) return res.status(404).json({ error: 'User not found.' });
   const updated = store.setUserActive(user.id, !user.active);
   res.json(updated);
+});
+
+// Reset a user's PIN back to the default 1234.
+router.post('/users/:id/reset-pin', (req, res) => {
+  const user = store.findUserById(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found.' });
+  store.setUserPin(user.id, hashPassword('1234'));
+  res.json({ ok: true, message: 'PIN reset to 1234.' });
 });
 
 router.get('/trips', (req, res) => {

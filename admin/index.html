@@ -63,15 +63,15 @@
 
   <section id="viewUsers" class="card">
     <h2>Approved users</h2>
+    <p class="msg" style="margin-top:0">Every account uses a 4-digit PIN. The default PIN is <strong>1234</strong>; users change it inside the app.</p>
     <form id="addUserForm">
       <input id="newUsername" placeholder="Username" />
-      <input id="newPassword" type="password" placeholder="Password (min 8 characters)" />
       <input id="newDisplay" placeholder="Display name" />
       <button class="primary" type="submit">Create user</button>
     </form>
     <p class="msg" id="userMsg"></p>
     <table>
-      <thead><tr><th>Username</th><th>Display name</th><th>Role</th><th>Active</th><th>Created</th><th>Action</th></tr></thead>
+      <thead><tr><th>Username</th><th>Display name</th><th>Role</th><th>Active</th><th>Created</th><th>Actions</th></tr></thead>
       <tbody id="userRows"></tbody>
     </table>
   </section>
@@ -158,8 +158,10 @@ async function loadUsers() {
         '<td>' + esc(u.role) + '</td>' +
         '<td>' + (u.active ? 'Yes' : 'No') + '</td>' +
         '<td class="muted">' + esc(String(u.createdAt || '').slice(0, 10)) + '</td>' +
-        '<td><button class="small" data-action="toggle" data-id="' + esc(u.id) + '">' +
-        (u.active ? 'Deactivate' : 'Activate') + '</button></td>';
+        '<td>' +
+        '<button class="small" data-action="toggle" data-id="' + esc(u.id) + '">' + (u.active ? 'Deactivate' : 'Activate') + '</button> ' +
+        '<button class="small" data-action="reset-pin" data-id="' + esc(u.id) + '">Reset PIN</button>' +
+        '</td>';
       rows.appendChild(tr);
     }
   } catch (err) {
@@ -189,7 +191,9 @@ async function loadTrips() {
         '<td class="error-cell">' + esc(t.lastError || '') + '</td>' +
         '<td>' +
         (t.status === 'failed' ? '<button class="small" data-action="retry" data-id="' + esc(t.tripId) + '">Retry upload</button> ' : '') +
-        '<button class="small" data-action="map" data-id="' + esc(t.tripId) + '">Map</button>' +
+        '<button class="small" data-action="map" data-id="' + esc(t.tripId) + '">Map</button> ' +
+        '<a class="small" style="text-decoration:none;border:1px solid var(--green);color:var(--green);padding:4px 10px;border-radius:6px;font-size:13px;display:inline-block" ' +
+        'href="/api/admin/trips/' + encodeURIComponent(t.tripId) + '/kml?token=' + encodeURIComponent(getToken()) + '">Download KML</a>' +
         '</td>';
       rows.appendChild(tr);
     }
@@ -227,14 +231,12 @@ document.getElementById('addUserForm').addEventListener('submit', async (e) => {
       method: 'POST',
       body: JSON.stringify({
         username: document.getElementById('newUsername').value,
-        password: document.getElementById('newPassword').value,
         displayName: document.getElementById('newDisplay').value,
       }),
     });
     msg.className = 'msg ok';
-    msg.textContent = 'User created.';
+    msg.textContent = 'User created. Default PIN is 1234.';
     document.getElementById('newUsername').value = '';
-    document.getElementById('newPassword').value = '';
     document.getElementById('newDisplay').value = '';
     loadUsers();
   } catch (err) {
@@ -258,6 +260,11 @@ document.addEventListener('click', async (e) => {
       button.disabled = true;
       await api('/api/admin/trips/' + encodeURIComponent(id) + '/retry', { method: 'POST' });
       loadTrips();
+    } else if (action === 'reset-pin') {
+      await api('/api/admin/users/' + encodeURIComponent(id) + '/reset-pin', { method: 'POST' });
+      msg.className = 'msg ok';
+      msg.textContent = 'PIN reset to 1234.';
+      loadUsers();
     } else if (action === 'map') {
       window.open('map.html?tripId=' + encodeURIComponent(id), '_blank');
     }

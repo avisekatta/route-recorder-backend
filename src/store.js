@@ -99,6 +99,13 @@ module.exports = {
     const { passwordHash, ...pub } = user;
     return pub;
   },
+  setUserPin(id, pinHash) {
+    const user = this.findUserById(id);
+    if (!user) return null;
+    user.passwordHash = pinHash;
+    saveAll();
+    return true;
+  },
   ensureDefaultAdmin({ username, passwordHash }) {
     if (!username || !passwordHash) return null;
     if (users.some((u) => u.role === 'admin')) return null;

@@ -31,7 +31,8 @@ function createToken(userId, role) {
 
 function authRequired(req, res, next) {
   const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  const queryToken = req.query && req.query.token ? String(req.query.token) : null;
+  const token = header.startsWith('Bearer ') ? header.slice(7) : queryToken;
   const record = token ? store.findToken(token) : null;
   if (!record || record.expiresAt < Date.now()) {
     return res.status(401).json({ error: 'Login required.' });
